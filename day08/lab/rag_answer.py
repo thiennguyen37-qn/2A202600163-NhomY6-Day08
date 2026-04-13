@@ -76,10 +76,36 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
         # Lưu ý: distances trong ChromaDB cosine = 1 - similarity
         # Score = 1 - distance
     """
-    raise NotImplementedError(
-        "TODO Sprint 2: Implement retrieve_dense().\n"
-        "Tham khảo comment trong hàm để biết cách query ChromaDB."
-    )
+    import chromadb
+    from index import get_embedding, CHROMA_DB_DIR
+    
+    try:
+        client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+        collection = client.get_collection("rag_lab")
+        
+        query_embedding = get_embedding(query)
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"]
+        )
+        
+        chunks = []
+        if results['documents'] and len(results['documents']) > 0:
+            docs = results['documents'][0]
+            metas = results['metadatas'][0] if results['metadatas'] else [{}] * len(docs)
+            dists = results['distances'][0] if results['distances'] else [0.0] * len(docs)
+            for i in range(len(docs)):
+                score = 1.0 - dists[i]
+                chunks.append({
+                    "text": docs[i],
+                    "metadata": metas[i],
+                    "score": score
+                })
+        return chunks
+    except Exception as e:
+        print(f"[retrieve_dense] Lỗi: {e}")
+        return []
 
 
 # =============================================================================
@@ -109,10 +135,40 @@ def retrieve_sparse(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any
         scores = bm25.get_scores(tokenized_query)
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
     """
-    # TODO Sprint 3: Implement BM25 search
-    # Tạm thời return empty list
-    print("[retrieve_sparse] Chưa implement — Sprint 3")
-    return []
+    try:
+        import chromadb
+        from index import CHROMA_DB_DIR
+        from rank_bm25 import BM25Okapi
+
+        client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
+        collection = client.get_collection("rag_lab")
+        all_data = collection.get(include=["documents", "metadatas"])
+        
+        if not all_data["documents"]:
+            return []
+            
+        all_chunks = []
+        for doc, meta in zip(all_data["documents"], all_data["metadatas"]):
+            all_chunks.append({"text": doc, "metadata": meta})
+            
+        corpus = [chunk["text"] for chunk in all_chunks]
+        tokenized_corpus = [doc.lower().split() for doc in corpus]
+        bm25 = BM25Okapi(tokenized_corpus)
+        
+        tokenized_query = query.lower().split()
+        scores = bm25.get_scores(tokenized_query)
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+        
+        results = []
+        for idx in top_indices:
+            chunk = all_chunks[idx].copy()
+            chunk["score"] = float(scores[idx])
+            results.append(chunk)
+            
+        return results
+    except Exception as e:
+        print(f"[retrieve_sparse] Lỗi: {e}")
+        return []
 
 
 # =============================================================================
@@ -148,10 +204,34 @@ def retrieve_hybrid(
     - Corpus có cả câu tự nhiên VÀ tên riêng, mã lỗi, điều khoản
     - Query như "Approval Matrix" khi doc đổi tên thành "Access Control SOP"
     """
-    # TODO Sprint 3: Implement hybrid RRF
-    # Tạm thời fallback về dense
-    print("[retrieve_hybrid] Chưa implement RRF — fallback về dense")
-    return retrieve_dense(query, top_k)
+    dense_results = retrieve_dense(query, top_k=top_k * 2)
+    sparse_results = retrieve_sparse(query, top_k=top_k * 2)
+    
+    rrf_k = 60
+    rrf_scores = {}
+    chunk_map = {}
+    
+    for rank, chunk in enumerate(dense_results):
+        cid = hash(chunk["text"])
+        if cid not in chunk_map:
+            chunk_map[cid] = chunk
+        rrf_scores[cid] = rrf_scores.get(cid, 0.0) + dense_weight * (1.0 / (rrf_k + rank + 1))
+        
+    for rank, chunk in enumerate(sparse_results):
+        cid = hash(chunk["text"])
+        if cid not in chunk_map:
+            chunk_map[cid] = chunk
+        rrf_scores[cid] = rrf_scores.get(cid, 0.0) + sparse_weight * (1.0 / (rrf_k + rank + 1))
+        
+    sorted_cids = sorted(rrf_scores.keys(), key=lambda cid: rrf_scores[cid], reverse=True)[:top_k]
+    
+    results = []
+    for cid in sorted_cids:
+        chunk = chunk_map[cid].copy()
+        chunk["score"] = rrf_scores[cid]
+        results.append(chunk)
+        
+    return results
 
 
 # =============================================================================
@@ -189,9 +269,24 @@ def rerank(
     - Dense/hybrid trả về nhiều chunk nhưng có noise
     - Muốn chắc chắn chỉ 3-5 chunk tốt nhất vào prompt
     """
-    # TODO Sprint 3: Implement rerank
-    # Tạm thời trả về top_k đầu tiên (không rerank)
-    return candidates[:top_k]
+    try:
+        from sentence_transformers import CrossEncoder
+        model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        pairs = [[query, chunk["text"]] for chunk in candidates]
+        scores = model.predict(pairs)
+        
+        ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+        
+        results = []
+        for chunk, score in ranked[:top_k]:
+            c = chunk.copy()
+            c["score"] = float(score)
+            results.append(c)
+            
+        return results
+    except Exception as e:
+        print(f"[rerank] Lỗi: {e}")
+        return candidates[:top_k]
 
 
 # =============================================================================
@@ -224,8 +319,27 @@ def transform_query(query: str, strategy: str = "expansion") -> List[str]:
     - Decomposition: query hỏi nhiều thứ một lúc
     - HyDE: query mơ hồ, search theo nghĩa không hiệu quả
     """
-    # TODO Sprint 3: Implement query transformation
-    # Tạm thời trả về query gốc
+    if strategy == "expansion":
+        prompt = f"""Given the query: '{query}'
+Generate 2 alternative phrasings or related terms in Vietnamese.
+Output ONLY the alternative queries, one per line. Do not include numbers, bullet points, or any other text."""
+        try:
+            response = call_llm(prompt)
+            alt_queries = [line.strip("- *1234567890.") for line in response.split("\n") if line.strip()]
+            return [query] + alt_queries[:2]
+        except Exception as e:
+            print(f"[transform_query] Lỗi expansion: {e}")
+            return [query]
+    elif strategy == "decomposition":
+        prompt = f"""Break down this complex query into 2 simpler sub-queries in Vietnamese: '{query}'
+Output ONLY the sub-queries, one per line. Do not include numbers or bullet points."""
+        try:
+            response = call_llm(prompt)
+            sub_queries = [line.strip("- *1234567890.") for line in response.split("\n") if line.strip()]
+            return sub_queries if sub_queries else [query]
+        except Exception:
+            return [query]
+            
     return [query]
 
 
