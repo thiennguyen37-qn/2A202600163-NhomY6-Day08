@@ -23,8 +23,8 @@ load_dotenv()
 DOCS_DIR = Path(__file__).parent / "data" / "docs"
 CHROMA_DB_DIR = Path(__file__).parent / "chroma_db"
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 50
+CHUNK_SIZE = 400
+CHUNK_OVERLAP = 80
 
 # Reuse clients/models so we do not recreate them for every call.
 _OPENAI_EMBED_CLIENT = None
@@ -402,11 +402,11 @@ if __name__ == "__main__":
 
     print("\n--- Build Full Index ---")
     # Uncomment neu ban muon build index ngay:
-    # build_index()
+    build_index()
 
     # Uncomment sau khi build index:
-    # list_chunks()
-    # inspect_metadata_coverage()
+    list_chunks()
+    inspect_metadata_coverage()
 
     print("\nSprint 1 setup hoan thanh!")
     print("Goi y tiep theo:")
