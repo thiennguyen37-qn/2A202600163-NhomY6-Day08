@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from rag_answer import rag_answer
+from openai import OpenAI
+import os
+from datetime import datetime
 
 # =============================================================================
 # CẤU HÌNH
@@ -90,10 +93,59 @@ def score_faithfulness(
     """
     # TODO Sprint 4: Implement scoring
     # Tạm thời trả về None (yêu cầu chấm thủ công)
-    return {
-        "score": None,
-        "notes": "TODO: Chấm thủ công hoặc implement LLM-as-Judge",
-    }
+    client = OpenAI()
+
+    # 1. Gom các chunks lại thành một đoạn text duy nhất
+    chunks_text = "\n\n".join([
+        f"--- Chunk {i+1} ---\n{chunk.get('content', chunk.get('text', str(chunk)))}" 
+        for i, chunk in enumerate(chunks_used)
+    ])
+
+    # 2. Xây dựng prompt theo đúng mô tả trong Docstring
+    system_prompt = "You are an expert evaluator. Your task is to rate the faithfulness of an answer based on retrieved contexts."
+    user_prompt = f"""
+    Given these retrieved chunks: 
+    {chunks_text}
+    
+    And this answer: 
+    {answer}
+    
+    Rate the faithfulness on a scale of 1-5.
+    5 = completely grounded in the provided context.
+    1 = answer contains information not in the context.
+    Output JSON: {{"score": <int>, "notes": "<string>"}}
+    """
+
+    # 3. Gọi LLM để chấm điểm tự động
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
+        
+        # 4. Parse kết quả JSON trả về
+        result = json.loads(response.choices[0].message.content)
+        
+        return {
+            "score": result.get("score"),
+            "notes": result.get("notes") # Hoặc 'reason' tùy theo LLM sinh ra
+        }
+
+    except Exception as e:
+        # Nếu API lỗi hoặc LLM tạch, fallback về chấm thủ công
+        return {
+            "score": None,
+            "notes": f"Lỗi LLM-as-Judge ({str(e)}). Yêu cầu chấm thủ công."
+        }
+    # return {
+    #     "score": None,
+    #     "notes": "TODO: Chấm thủ công hoặc implement LLM-as-Judge",
+    # }
 
 
 def score_answer_relevance(
@@ -113,10 +165,56 @@ def score_answer_relevance(
 
     TODO Sprint 4: Implement tương tự score_faithfulness
     """
-    return {
-        "score": None,
-        "notes": "TODO: Implement score_answer_relevance",
-    }
+    client = OpenAI()
+
+    # 1. Xây dựng prompt đánh giá dựa trên tiêu chí của docstring
+    system_prompt = "You are an expert evaluator. Your task is to rate the relevance of an AI-generated answer to a user's query."
+    user_prompt = f"""
+    Given the user query: 
+    {query}
+    
+    And the AI's answer: 
+    {answer}
+    
+    Rate the answer relevance on a scale of 1-5 based on these criteria:
+    5: Trả lời trực tiếp và đầy đủ câu hỏi.
+    4: Trả lời đúng nhưng thiếu vài chi tiết phụ.
+    3: Trả lời có liên quan nhưng chưa đúng trọng tâm.
+    2: Trả lời lạc đề một phần.
+    1: Hoàn toàn không trả lời câu hỏi.
+    
+    Output strictly ONE JSON object in this format: {{"score": <int>, "notes": "<string explaining the reason>"}}
+    """
+
+    # 2. Gọi LLM để chấm điểm tự động
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
+        
+        # 3. Parse kết quả JSON trả về
+        result = json.loads(response.choices[0].message.content)
+        
+        return {
+            "score": result.get("score"),
+            "notes": result.get("notes") 
+        }
+    except Exception as e:
+    # Fallback về chấm thủ công nếu có lỗi xảy ra
+        return {
+            "score": None,
+            "notes": f"Lỗi LLM-as-Judge ({str(e)}). Yêu cầu chấm thủ công."
+        }
+    # return {
+    #     "score": None,
+    #     "notes": "TODO: Implement score_answer_relevance",
+    # }
 
 
 def score_context_recall(
@@ -136,7 +234,7 @@ def score_context_recall(
         expected_sources = ["policy/refund-v4.pdf", "sla-p1-2026.pdf"]
         retrieved_sources = ["policy/refund-v4.pdf", "helpdesk-faq.md"]
         recall = 1/2 = 0.5
-
+        
     TODO Sprint 4:
     1. Lấy danh sách source từ chunks_used
     2. Kiểm tra xem expected_sources có trong retrieved sources không
@@ -146,28 +244,45 @@ def score_context_recall(
         # Câu hỏi không có expected source (ví dụ: "Không đủ dữ liệu" cases)
         return {"score": None, "recall": None, "notes": "No expected sources"}
 
+    # 1. Lấy danh sách source từ chunks_used
     retrieved_sources = {
         c.get("metadata", {}).get("source", "")
-        for c in chunks_used
+        for c in chunks_used if c.get("metadata", {}).get("source")
     }
 
-    # TODO: Kiểm tra matching theo partial path (vì source paths có thể khác format)
+    # 2. Kiểm tra matching theo partial path (vì source paths có thể khác format)
     found = 0
     missing = []
+    
     for expected in expected_sources:
-        # Kiểm tra partial match (tên file)
-        expected_name = expected.split("/")[-1].replace(".pdf", "").replace(".md", "")
-        matched = any(expected_name.lower() in r.lower() for r in retrieved_sources)
+        # Tách lấy tên file gốc (Bỏ đường dẫn thư mục và đuôi file)
+        # VD: "docs/policy/refund-v4.pdf" -> "refund-v4"
+        expected_basename = os.path.splitext(os.path.basename(expected))[0].lower()
+        
+        matched = False
+        for retrieved in retrieved_sources:
+            retrieved_basename = os.path.splitext(os.path.basename(retrieved))[0].lower()
+            
+            # Kiểm tra xem tên file có chứa nhau không
+            if expected_basename in retrieved_basename or retrieved_basename in expected_basename:
+                matched = True
+                break
+                
         if matched:
             found += 1
         else:
             missing.append(expected)
 
-    recall = found / len(expected_sources) if expected_sources else 0
+    # 3. Tính recall score
+    recall = found / len(expected_sources)
+    
+    # Chuyển đổi sang thang điểm 1-5
+    score = 1 if recall == 0 else round(recall * 5)
+    score = max(1, min(5, score)) # Chặn trên/dưới để đảm bảo điểm từ 1 đến 5
 
     return {
-        "score": round(recall * 5),  # Convert to 1-5 scale
-        "recall": recall,
+        "score": score,
+        "recall": round(recall, 4),
         "found": found,
         "missing": missing,
         "notes": f"Retrieved: {found}/{len(expected_sources)} expected sources" +
@@ -198,10 +313,63 @@ def score_completeness(
          Rate completeness 1-5. Are all key points covered?
          Output: {'score': int, 'missing_points': [str]}"
     """
-    return {
-        "score": None,
-        "notes": "TODO: Implement score_completeness (so sánh với expected_answer)",
-    }
+    client = OpenAI()
+
+    # 1. Xây dựng prompt để LLM đóng vai trò giám khảo đối chiếu 2 câu trả lời
+    system_prompt = "You are an expert evaluator. Your task is to evaluate the completeness of an AI-generated answer against an expected ground-truth answer."
+    user_prompt = f"""
+    Given the user query:
+    {query}
+    
+    The expected ideal answer is:
+    {expected_answer}
+    
+    The AI-generated answer to evaluate is:
+    {answer}
+    
+    Compare the model answer with the expected answer. Rate completeness on a scale of 1-5.
+    5: Answer includes all key points from the expected answer.
+    4: Missing 1 minor detail.
+    3: Missing some important information.
+    2: Missing many important details.
+    1: Missing most of the core content.
+    
+    Output strictly ONE JSON object in this format: 
+    {{
+        "score": <int>, 
+        "missing_points": ["<point 1>", "<point 2>"], 
+        "notes": "<string explaining the reason>"
+    }}
+    """
+
+    # 2. Gọi LLM để chấm điểm tự động
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
+        
+        # 3. Parse kết quả JSON trả về
+        result = json.loads(response.choices[0].message.content)
+        
+        return {
+            "score": result.get("score"),
+            "missing_points": result.get("missing_points", []),
+            "notes": result.get("notes")
+        }
+
+    except Exception as e:
+        # Fallback về chấm thủ công nếu có lỗi xảy ra
+        return {
+            "score": None,
+            "missing_points": [],
+            "notes": f"Lỗi LLM-as-Judge ({str(e)}). Yêu cầu chấm thủ công."
+        }
 
 
 # =============================================================================
@@ -309,6 +477,23 @@ def run_scorecard(
         scores = [r[metric] for r in results if r[metric] is not None]
         avg = sum(scores) / len(scores) if scores else None
         print(f"\nAverage {metric}: {avg:.2f}" if avg else f"\nAverage {metric}: N/A (chưa chấm)")
+
+    if verbose:
+        print(f"\n{'='*85}")
+        print(f"BẢNG TỔNG HỢP KẾT QUẢ CHI TIẾT - {label.upper()}")
+        print(f"{'ID':<5} | {'Category':<15} | {'Faithful':<10} | {'Relevant':<10} | {'Recall':<8} | {'Complete':<8}")
+        print("-" * 85)
+        for r in results:
+            f_score = str(r['faithfulness']) if r['faithfulness'] is not None else 'N/A'
+            rel_score = str(r['relevance']) if r['relevance'] is not None else 'N/A'
+            rec_score = str(r['context_recall']) if r['context_recall'] is not None else 'N/A'
+            comp_score = str(r['completeness']) if r['completeness'] is not None else 'N/A'
+            
+            # Cắt ngắn category nếu quá dài để bảng không bị vỡ
+            cat_display = r['category'][:15] if isinstance(r['category'], str) else str(r['category'])
+            
+            print(f"{r['id']:<5} | {cat_display:<15} | {f_score:<10} | {rel_score:<10} | {rec_score:<8} | {comp_score:<8}")
+        print(f"{'='*85}\n")
 
     return results
 
