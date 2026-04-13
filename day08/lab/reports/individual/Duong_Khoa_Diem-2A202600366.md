@@ -14,7 +14,7 @@ Trong Lab 08, tôi đảm nhận vai trò Tech Lead và Retrieval Owner, chủ y
 - Mở rộng kiến trúc thành Hybrid Retrieval: Triển khai thuật toán tìm kiếm Sparse bằng thư viện `rank_bm25` (phân tích keyword) và kết hợp với Dense qua cơ chế chấm điểm chéo Reciprocal Rank Fusion (RRF). 
 - Triển khai cross-encoder Re-ranking để nâng cao độ chính xác (Precision) cho Top K chunks thu được. 
 
-Tôi cộng tác chặt chẽ cùng một AI assistant để hoàn thiện các module tìm kiếm này (từ dòng 1 đến 231 trong `rag_answer.py`). Tuy nhiên, phần khởi tạo mô hình ngôn ngữ và sinh câu trả lời trong hàm `call_llm` là do thành viên Võ Thanh Chung trong nhóm phụ trách. Tôi đảm bảo kết quả Retrieved Chunks được truyền chuẩn xác qua format prompt để thành viên đó có dữ liệu đúng.
+Tôi cộng tác chặt chẽ cùng một AI assistant để hoàn thiện các module tìm kiếm này (từ dòng 1 đến 231 trong `rag_answer.py`). Tuy nhiên, phần khởi tạo mô hình ngôn ngữ và sinh câu trả lời trong hàm `call_llm` là do thành viên Võ Thanh Chung trong nhóm phụ trách. Tôi đảm bảo kết quả Retrieved Chunks được truyền chuẩn xác qua format prompt để thành viên Chung có dữ liệu đúng.
 
 ---
 
