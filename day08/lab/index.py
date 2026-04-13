@@ -243,7 +243,7 @@ def get_embedding(text: str) -> List[float]:
         if _OPENAI_EMBED_CLIENT is None:
             from openai import OpenAI
 
-            _OPENAI_EMBED_CLIENT = OpenAI(api_key=openai_key, base_url="https://models.inference.ai.azure.com/")
+            _OPENAI_EMBED_CLIENT = OpenAI(api_key=OPENAI_API_KEY, base_url="https://models.inference.ai.azure.com/")
 
         response = _OPENAI_EMBED_CLIENT.embeddings.create(
             input=clean_text,
