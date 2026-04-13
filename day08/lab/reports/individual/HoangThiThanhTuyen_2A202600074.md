@@ -1,7 +1,7 @@
 # Báo Cáo Cá Nhân — Lab Day 08: RAG Pipeline
 
 **Họ và tên:** Hoàng Thị Thanh Tuyền
-**Vai trò trong nhóm:** Thành viên
+**Vai trò trong nhóm:** Thành viên - Indexing Owner
 **Ngày nộp:** 13/04/2026
 
 ---
