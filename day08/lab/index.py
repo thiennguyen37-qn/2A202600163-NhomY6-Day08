@@ -6,6 +6,15 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List
+from config import (
+    DOCS_DIR,
+    CHROMA_DB_DIR,
+    CHUNK_SIZE_TOKENS as CHUNK_SIZE,
+    CHUNK_OVERLAP_TOKENS as CHUNK_OVERLAP,
+    OPENAI_API_KEY,
+    OPENAI_EMBEDDING_MODEL,
+    LOCAL_EMBEDDING_MODEL,
+)
 
 try:
     from dotenv import load_dotenv
@@ -13,18 +22,6 @@ except Exception:
     # Keep scripts runnable even when python-dotenv is not installed.
     def load_dotenv() -> bool:
         return False
-
-load_dotenv()
-
-# =============================================================================
-# CONFIG
-# =============================================================================
-
-DOCS_DIR = Path(__file__).parent / "data" / "docs"
-CHROMA_DB_DIR = Path(__file__).parent / "chroma_db"
-
-CHUNK_SIZE = 400
-CHUNK_OVERLAP = 80
 
 # Reuse clients/models so we do not recreate them for every call.
 _OPENAI_EMBED_CLIENT = None
@@ -242,8 +239,7 @@ def get_embedding(text: str) -> List[float]:
 
     # TODO Sprint 1:
     # Option A - OpenAI embeddings
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key:
+    if OPENAI_API_KEY:
         if _OPENAI_EMBED_CLIENT is None:
             from openai import OpenAI
 
@@ -251,7 +247,7 @@ def get_embedding(text: str) -> List[float]:
 
         response = _OPENAI_EMBED_CLIENT.embeddings.create(
             input=clean_text,
-            model="text-embedding-3-small",
+            model=OPENAI_EMBEDDING_MODEL,
         )
         return response.data[0].embedding
 
@@ -259,7 +255,7 @@ def get_embedding(text: str) -> List[float]:
     if _ST_EMBED_MODEL is None:
         from sentence_transformers import SentenceTransformer
 
-        _ST_EMBED_MODEL = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+        _ST_EMBED_MODEL = SentenceTransformer(LOCAL_EMBEDDING_MODEL)
 
     return _ST_EMBED_MODEL.encode(clean_text).tolist()
 

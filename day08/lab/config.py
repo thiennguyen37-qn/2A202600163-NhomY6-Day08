@@ -201,4 +201,5 @@ Cảnh báo:
 - Hybrid + Rerank = chậm hơn (~2-3s per query)
 """
 
-print(TUNING_GUIDE)
+if __name__ == "__main__":
+    print(TUNING_GUIDE)

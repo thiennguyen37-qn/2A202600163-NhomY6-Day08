@@ -24,17 +24,23 @@ Definition of Done Sprint 3:
 import os
 from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
+from config import (
+    TOP_K_SEARCH_BASE as TOP_K_SEARCH,
+    TOP_K_SELECT_BASE as TOP_K_SELECT,
+    LLM_MODEL,
+    LLM_TEMPERATURE,
+    LLM_MAX_TOKENS,
+    LLM_PROVIDER,
+    OPENAI_API_KEY,
+    GOOGLE_API_KEY,
+    DENSE_WEIGHT,
+    SPARSE_WEIGHT,
+    RRF_K,
+    RERANK_MODEL,
+    MIN_CONFIDENCE,
+)
 
 load_dotenv()
-
-# =============================================================================
-# CẤU HÌNH
-# =============================================================================
-
-TOP_K_SEARCH = 10    # Số chunk lấy từ vector store trước rerank (search rộng)
-TOP_K_SELECT = 3     # Số chunk gửi vào prompt sau rerank/select (top-3 sweet spot)
-
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
 
 # =============================================================================
@@ -178,8 +184,8 @@ def retrieve_sparse(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any
 def retrieve_hybrid(
     query: str,
     top_k: int = TOP_K_SEARCH,
-    dense_weight: float = 0.6,
-    sparse_weight: float = 0.4,
+    dense_weight: float = DENSE_WEIGHT,
+    sparse_weight: float = SPARSE_WEIGHT,
 ) -> List[Dict[str, Any]]:
     """
     Hybrid retrieval: kết hợp dense và sparse bằng Reciprocal Rank Fusion (RRF).
@@ -207,7 +213,7 @@ def retrieve_hybrid(
     dense_results = retrieve_dense(query, top_k=top_k * 2)
     sparse_results = retrieve_sparse(query, top_k=top_k * 2)
     
-    rrf_k = 60
+    rrf_k = RRF_K
     rrf_scores = {}
     chunk_map = {}
     
@@ -271,7 +277,7 @@ def rerank(
     """
     try:
         from sentence_transformers import CrossEncoder
-        model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        model = CrossEncoder(RERANK_MODEL)
         pairs = [[query, chunk["text"]] for chunk in candidates]
         scores = model.predict(pairs)
         
@@ -408,15 +414,21 @@ def call_llm(prompt: str) -> str | None:
     Gọi LLM để sinh câu trả lời.
     """
 
-    from openai import OpenAI
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-        max_tokens=512,
-    )
-    return response.choices[0].message.content
+    if LLM_PROVIDER == "gemini":
+        import google.generativeai as genai
+        genai.configure(api_key=GOOGLE_API_KEY)
+        model = genai.GenerativeModel(LLM_MODEL)
+        return model.generate_content(prompt).text
+    else:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=LLM_TEMPERATURE,
+            max_tokens=LLM_MAX_TOKENS,
+        )
+        return response.choices[0].message.content
 
 
 
@@ -482,6 +494,17 @@ def rag_answer(
         print(f"[RAG] Retrieved {len(candidates)} candidates (mode={retrieval_mode})")
         for i, c in enumerate(candidates[:3]):
             print(f"  [{i+1}] score={c.get('score', 0):.3f} | {c['metadata'].get('source', '?')}")
+
+    # --- Kiểm tra MIN_CONFIDENCE để abstain sớm (chỉ áp dụng với dense) ---
+    # Hybrid/sparse dùng RRF/BM25 scores có thang điểm khác, không so với MIN_CONFIDENCE
+    if retrieval_mode == "dense" and (not candidates or candidates[0].get("score", 1.0) < MIN_CONFIDENCE):
+        return {
+            "query": query,
+            "answer": "Không đủ dữ liệu để trả lời câu hỏi này.",
+            "sources": [],
+            "chunks_used": [],
+            "config": config,
+        }
 
     # --- Bước 2: Rerank (optional) ---
     if use_rerank:
