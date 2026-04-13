@@ -47,6 +47,9 @@ CHUNKING_STRATEGY = "hybrid"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 
+# Groq (OpenAI-compatible chat endpoint)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
 # Gemini / Google
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
@@ -76,8 +79,8 @@ RETRIEVAL_MODE_VARI = "hybrid"  # ← Thử "hybrid" để cải thiện (nhất
 RRF_K = 60
 
 # Trọng số: dense vs sparse
-DENSE_WEIGHT = 0.6  # ← Semantic
-SPARSE_WEIGHT = 0.4  # ← Keyword
+DENSE_WEIGHT = 0.5  # ← Semantic
+SPARSE_WEIGHT = 0.5  # ← Keyword
 
 # Ngưỡng tin cậy: nếu dưới này → abstain (không trả lời)
 # Nhỏ hơn → ít abstain, nhưng hay bịa
@@ -91,7 +94,7 @@ MIN_CONFIDENCE = 0.18  # ← Giảm xuống 0.10-0.15 nếu muốn ít abstain
 
 # Có dùng cross-encoder rerank không?
 USE_RERANK_BASE = False  # ← Thử True nếu dense retrieve có noise nhiều
-USE_RERANK_VARI = True  # ← Thử True nếu dense retrieve có noise nhiều
+USE_RERANK_VARI = False  # ← Thử True nếu dense retrieve có noise nhiều
 
 # Model rerank (chỉ dùng khi USE_RERANK=True)
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # English
@@ -102,12 +105,14 @@ RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # English
 # Ảnh hưởng: 10% độ chính xác
 # =============================================================================
 
-# Provider: đọc từ .env → LLM_PROVIDER=openai hoặc LLM_PROVIDER=gemini
+# Provider: đọc từ .env → LLM_PROVIDER=openai | gemini | groq
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 
 # Model LLM — tự động chọn theo LLM_PROVIDER
 if LLM_PROVIDER == "gemini":
     LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+elif LLM_PROVIDER == "groq":
+    LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
 else:
     LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
